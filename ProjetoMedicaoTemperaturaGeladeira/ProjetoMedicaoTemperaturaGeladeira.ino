@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <DHT.h>
+#include <WiFiManager.h>
 #include <WiFi.h>          
 #include <WiFiUdp.h>  
 #include <NTPClient.h>
@@ -22,10 +23,6 @@ const int LEDvermelho = 27;
 const int LEDverde = 14;
 const int LEDazul = 12;
 const int AlarmeSonoro = 26;
-
-// Defina seu SSID e senha Wi-Fi
-const char* ssid = "MARIA_2.4G";     // Substitua pelo seu SSID
-const char* password = "85441200";    // Substitua pela sua senha
 
 WiFiUDP udp;
 NTPClient timeClient(udp, "pool.ntp.org");
@@ -384,7 +381,6 @@ void exibirTemperaturas(float temperaturaInterna, float temperaturaExterna) {
   if (millis() - ultimoMostrarIp >= intervaloExibeIP) {
     ultimoMostrarIp = millis(); // atualiza o tempo da última atualização
     lcd.setCursor(0, 1);
-    lcd.print("IP: ");
     lcd.print(WiFi.localIP());
   } else {
       // Exibe a temperatura externa na segunda linha
@@ -544,20 +540,20 @@ void setup() {
   criarArquivosIniciais(); // CHAMA A FUNÇÃO PRA ENFIAR A MERDA DO HTML
 
   // Wi-Fi com timeout
-  WiFi.begin(ssid, password);
-  int tentativasWiFi = 0;
-  while (WiFi.status() != WL_CONNECTED && tentativasWiFi < 30) {
+  WiFiManager wm;
+  wm.setTimeout(180); // Tempo limite de 3 minutos para configurar
+
+  // Tenta conectar às redes salvas. Se não conseguir, abre um AP para configuração
+  if (!wm.autoConnect("MonitorTemperatura", "admin")) {
+    Serial.println("Falha na conexão. Reiniciando ESP...");
     delay(3000);
-    Serial.println("Conectando ao WiFi...");
-    tentativasWiFi++;
+    ESP.restart(); // <-- Aqui o ESP32 reinicia se não conectar
   }
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Erro: sem Wi-Fi. Reiniciando...");
-    ESP.restart();
-  }
+  Serial.println("Wi-Fi conectado!");
+  Serial.print("IP local: ");
+  Serial.println(WiFi.localIP());
 
-  Serial.println("Wi-Fi conectado.");
   timeClient.begin();
   timeClient.setTimeOffset(-10800);  // -3 horas em segundos (UTC-3)
 
@@ -658,3 +654,4 @@ void setup() {
   Serial.println("Gravou temperatura inicial");
 
 }
+
