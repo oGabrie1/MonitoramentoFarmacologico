@@ -173,7 +173,7 @@ void criarArquivosIniciais() {
       fetch('/temperaturas')
         .then(res => res.text())
         .then(csv => {
-          const linhas = csv.trim().split("\n");
+          const linhas = csv.trim().split("\n").reverse(); // ← INVERTE AS LINHAS
           const tabela = document.getElementById("tabelaTemperaturas").querySelector("tbody");
           tabela.innerHTML = "";
           linhas.forEach(linha => {
@@ -192,7 +192,7 @@ void criarArquivosIniciais() {
       fetch('/porta')
         .then(res => res.text())
         .then(csv => {
-          const linhas = csv.trim().split("\n");
+          const linhas = csv.trim().split("\n").reverse(); // ← INVERTE AS LINHAS
           const tabela = document.getElementById("tabelaPorta").querySelector("tbody");
           tabela.innerHTML = "";
           linhas.forEach(linha => {
