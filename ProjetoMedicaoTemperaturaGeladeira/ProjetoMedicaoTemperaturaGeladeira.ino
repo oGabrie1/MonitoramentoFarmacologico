@@ -149,7 +149,6 @@ void criarArquivosIniciais() {
           <tr>
             <th>Data/Hora</th>
             <th>Evento</th>
-            <th>Tempo de Execução (ms)</th>
           </tr>
         </thead>
         <tbody>
@@ -198,11 +197,10 @@ void criarArquivosIniciais() {
           tabela.innerHTML = "";
           linhas.forEach(linha => {
             const cols = linha.split(",");
-            if (cols.length === 3) {
+            if (cols.length === 2) {
               const row = tabela.insertRow();
               row.insertCell(0).textContent = cols[0];
               row.insertCell(1).textContent = cols[1];
-              row.insertCell(2).textContent = cols[2];
             }
           });
         });
@@ -536,6 +534,13 @@ void setup() {
     while (true);
   }
 
+  // Apagar todos os arquivos armazenados no SPIFFS
+  //Serial.println("Apagando todos os arquivos do SPIFFS...");
+  //SPIFFS.format();  // Isso apaga todos os dados do SPIFFS
+  
+  // Continuar com o restante do seu setup normalmente
+  //Serial.println("SPIFFS formatado!");
+
   criarArquivosIniciais(); // CHAMA A FUNÇÃO PRA ENFIAR A MERDA DO HTML
 
   // Wi-Fi com timeout
@@ -597,7 +602,7 @@ void setup() {
   servidor.on("/porta", HTTP_GET, []() {
     File file = SPIFFS.open("/porta.csv", "r");
     if (!file) {
-      servidor.send(500, "text/plain", "Erro ao abrir porta.csv");
+      servidor.send(100, "text/plain", "Erro ao abrir porta.csv");
       return;
     }
     servidor.streamFile( file, "text/csv");
@@ -637,5 +642,19 @@ void setup() {
     NULL,                   // Handle da tarefa
     1                       // Núcleo 1 (para o servidor web)
   );
-}
 
+
+  temperaturaExternaAtual  = lerTemperaturaExterna();
+  temperaturaInternaAtual = lerTemperaturaInterna();
+
+  // Formatar data/hora atual
+  time_t rawTime = timeClient.getEpochTime();
+  struct tm* timeInfo = localtime(&rawTime);
+  char dataHora[30];
+  strftime(dataHora, sizeof(dataHora), "%d/%m/%Y %H:%M:%S", timeInfo);
+
+  // Salvar imediatamente
+  salvarTemperatura(temperaturaInternaAtual, temperaturaExternaAtual, dataHora);
+  Serial.println("Gravou temperatura inicial");
+
+}
