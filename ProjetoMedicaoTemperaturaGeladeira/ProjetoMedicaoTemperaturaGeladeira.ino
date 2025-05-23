@@ -11,6 +11,8 @@
 #include <freertos/task.h>
 #include "FS.h"
 #include "SPIFFS.h"
+#include <ESPmDNS.h>
+
 
 // Definindo os pinos e tipos dos sensores
 #define DHT11PIN 13        // Pino de dados 
@@ -46,6 +48,7 @@ const unsigned long intervaloLeitura = 1000;  // 1 segundos
 // para mostrar no html
 float temperaturaInternaAtual = 0.0;
 float temperaturaExternaAtual = 0.0;
+int loopsimulacao = 0;
 
 // Instanciando os sensores DHT
 DHT dht11(DHT11PIN, DHT11TYPE); // Cria objeto DHT
@@ -298,11 +301,11 @@ float lerTemperaturaInterna() {
   }
 
   // Exibe os valores lidos
-  Serial.print("Temperatura Interna: ");
-  Serial.print(temperatura);
-  Serial.print(" °C  |  Umidade: ");
-  Serial.print(humidade);
-  Serial.println(" %");
+  //Serial.print("Temperatura Interna: ");
+  //Serial.print(temperatura);
+  //Serial.print(" °C  |  Umidade: ");
+  //Serial.print(humidade);
+  //Serial.println(" %");
   return temperatura;
 }
 
@@ -318,11 +321,11 @@ float lerTemperaturaExterna() {
   }
 
   // Exibe os valores lidos
-  Serial.print("Temperatura Externa: ");
-  Serial.print(temperatura);
-  Serial.print(" °C  |  Umidade: ");
-  Serial.print(humidade);
-  Serial.println(" %");
+  //Serial.print("Temperatura Externa: ");
+  //Serial.print(temperatura);
+  //Serial.print(" °C  |  Umidade: ");
+  //Serial.print(humidade);
+  //Serial.println(" %");
 
   return temperatura;
 }
@@ -345,7 +348,6 @@ void atualizarLED(float temperaturaInterna) {
     //Caso temperatura invalida
     return;
   }
-
   if (temperaturaInterna > 8.0) {
     digitalWrite(LEDvermelho, HIGH);
     digitalWrite(LEDverde, LOW);
@@ -381,7 +383,7 @@ void exibirTemperaturas(float temperaturaInterna, float temperaturaExterna) {
   if (millis() - ultimoMostrarIp >= intervaloExibeIP) {
     ultimoMostrarIp = millis(); // atualiza o tempo da última atualização
     lcd.setCursor(0, 1);
-    lcd.print(WiFi.localIP());
+    lcd.print("geladeira.local");
   } else {
       // Exibe a temperatura externa na segunda linha
     lcd.setCursor(0, 1);
@@ -432,6 +434,30 @@ void lerSensorPorta(){
   }
 }
 
+void verificarConexaoWiFi() {
+  // Verifica se a conexão Wi-Fi está ativa
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Conexão Wi-Fi perdida! Tentando reconectar...");
+    
+    // Tenta reconectar ao Wi-Fi
+    WiFi.reconnect();
+    
+    // Aguarda 10 segundos para a reconexão
+    unsigned long startMillis = millis();
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(1000);
+      Serial.print(".");
+      if (millis() - startMillis > 10000) {  // 10 segundos de espera
+        Serial.println("\nFalha ao reconectar Wi-Fi. Reiniciando...");
+        ESP.restart();  // Reinicia o ESP32
+      }
+    }
+    
+    // Conectado com sucesso
+    Serial.println("Wi-Fi reconectado!");
+  }
+}
+
 // Núcleo que Lida com sensores
 void tarefaSensores(void *parameter) {
   while (true) {
@@ -443,7 +469,8 @@ void tarefaSensores(void *parameter) {
       // Obtém o horário formatado diretamente
       //char dataHora[30];
       //String dataHora = timeClient.getFormattedTime();
-
+      verificarConexaoWiFi();
+      
       // Obtém a data/hora atual
       time_t rawTime = timeClient.getEpochTime();
       struct tm* timeInfo = localtime(&rawTime);
@@ -452,8 +479,8 @@ void tarefaSensores(void *parameter) {
 
       // Exibe as temperaturas no LCD (a cada 3segundos e a cada 12 segundos exibe o IP)
       if (millis() - ultimaAtualizacao >= intervaloAtualizacao ) {
-        Serial.print("IP do ESP32: ");
-        Serial.println(WiFi.localIP());
+        //Serial.print("IP do ESP32: ");
+        //Serial.println(WiFi.localIP());
 
         // Lê as temperaturas
         temperaturaExternaAtual  = lerTemperaturaExterna(); // Retornar Temperatura Externa
@@ -490,7 +517,7 @@ void tarefaSensores(void *parameter) {
 void tarefaServidorWeb(void *parameter) {
   while (true) {
     servidor.handleClient();  // Serve as requisições HTTP (arquivo HTML, CSV, etc.)
-    delay(500);  // Delay para não sobrecarregar o núcleo 1
+    delay(1000);  // Delay para não sobrecarregar o núcleo 1
   }
 }
 
@@ -501,6 +528,7 @@ void loop() {
 void setup() {
   Serial.begin(115200);   // Inicia comunicação
   Serial.println("Iniciando as configurações...");
+  delay(1000);
   
   dht11.begin();  // Inicializa o primeiro sensor DHT (DHT11)
   dht22.begin();  // Inicializa o segundo sensor DHT (DHT22)
@@ -541,18 +569,26 @@ void setup() {
 
   // Wi-Fi com timeout
   WiFiManager wm;
+  // Apaga as redes WiFi salvas
+  //wm.resetSettings();
   wm.setTimeout(180); // Tempo limite de 3 minutos para configurar
 
   // Tenta conectar às redes salvas. Se não conseguir, abre um AP para configuração
-  if (!wm.autoConnect("MonitorTemperatura", "admin")) {
-    Serial.println("Falha na conexão. Reiniciando ESP...");
-    delay(3000);
-    ESP.restart(); // <-- Aqui o ESP32 reinicia se não conectar
+  if (!wm.autoConnect("MonitorTemperatura", "12345678")) {
+    Serial.println("Falha na conexão. Reiniciando ESP em 3 minutos...");
+    delay(10000);  // 3 minutos de delay antes do restart
+    ESP.restart();
   }
 
   Serial.println("Wi-Fi conectado!");
   Serial.print("IP local: ");
   Serial.println(WiFi.localIP());
+
+  if (!MDNS.begin("geladeira")) {  // Nome desejado, sem espaços
+    Serial.println("Erro ao iniciar mDNS");
+  } else {
+    Serial.println("mDNS iniciado: geladeira.local");
+  }
 
   timeClient.begin();
   timeClient.setTimeOffset(-10800);  // -3 horas em segundos (UTC-3)
@@ -572,6 +608,23 @@ void setup() {
     Serial.println("Sincronizado com sucesso!");
   }
 
+  delay(1000);
+
+  
+  temperaturaExternaAtual  = lerTemperaturaExterna();
+  temperaturaInternaAtual = lerTemperaturaInterna();
+
+  // Formatar data/hora atual
+  time_t rawTime = timeClient.getEpochTime();
+  struct tm* timeInfo = localtime(&rawTime);
+  char dataHora[30];
+  strftime(dataHora, sizeof(dataHora), "%d/%m/%Y %H:%M:%S", timeInfo);
+
+  // Salvar imediatamente
+  salvarTemperatura(temperaturaInternaAtual, temperaturaExternaAtual, dataHora);
+  Serial.println("Gravou temperatura inicial");
+
+  delay(1000);
 
   servidor.on("/", HTTP_GET, []() {
     File file = SPIFFS.open("/index.html", "r");
@@ -639,19 +692,6 @@ void setup() {
     1                       // Núcleo 1 (para o servidor web)
   );
 
-
-  temperaturaExternaAtual  = lerTemperaturaExterna();
-  temperaturaInternaAtual = lerTemperaturaInterna();
-
-  // Formatar data/hora atual
-  time_t rawTime = timeClient.getEpochTime();
-  struct tm* timeInfo = localtime(&rawTime);
-  char dataHora[30];
-  strftime(dataHora, sizeof(dataHora), "%d/%m/%Y %H:%M:%S", timeInfo);
-
-  // Salvar imediatamente
-  salvarTemperatura(temperaturaInternaAtual, temperaturaExternaAtual, dataHora);
-  Serial.println("Gravou temperatura inicial");
+  delay(1000);
 
 }
-
