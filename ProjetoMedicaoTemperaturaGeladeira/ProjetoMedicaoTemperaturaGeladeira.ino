@@ -1,9 +1,11 @@
+// Bibliotecas necessárias
+
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <DHT.h>
 #include <WiFiManager.h>
-#include <WiFi.h>          
-#include <WiFiUdp.h>  
+#include <WiFi.h>
+#include <WiFiUdp.h>
 #include <NTPClient.h>
 #include <time.h>
 #include <WebServer.h>
@@ -13,51 +15,66 @@
 #include "SPIFFS.h"
 #include <ESPmDNS.h>
 
+// ---------------------------
+// Definições de hardware
+// ---------------------------
 
-// Definindo os pinos e tipos dos sensores
-#define DHT11PIN 13        // Pino de dados 
-#define DHT22PIN 15        // Pino de dados 
-#define DHT11TYPE DHT11    // Tipo do sensor, DHT11
-#define DHT22TYPE DHT22    // Tipo do sensor, DHT22
 
-// Pinos dos LEDs
+// Sensores de temperatura
+#define DHT11PIN 13      // Pino de dados
+#define DHT22PIN 15      // Pino de dados
+#define DHT11TYPE DHT11  // Tipo do sensor, DHT11
+#define DHT22TYPE DHT22  // Tipo do sensor, DHT22
+
+// LEDs de status e alarme sonoro
 const int LEDvermelho = 27;
 const int LEDverde = 14;
 const int LEDazul = 12;
 const int AlarmeSonoro = 26;
 
+// Botão de sensor de porta
+#define BOTAO_PRESSAO 18
+
+// ---------------------------
+// Variáveis globais
+// ---------------------------
+
 WiFiUDP udp;
 NTPClient timeClient(udp, "pool.ntp.org");
-WebServer servidor(80); // Cria servidor esp
+WebServer servidor(80);  // Cria servidor esp
 
+// Controle de estado da porta
 unsigned long portaAbertaTempo = 0;
 unsigned long portaFechadaTempo = 0;
 bool portaAberta = false;
-#define BOTAO_PRESSAO 18
 
-// Funções de tempo do millis
+// Variáveis de tempo do millis
 unsigned long ultimaGravacao = 0;
-const unsigned long intervaloGravacao = 1800000; // 30 minutos (1800000 ms)
+const unsigned long intervaloGravacao = 1800000;  // 30 minutos (1800000 ms)
 unsigned long ultimaAtualizacao = 0;
-const unsigned long intervaloAtualizacao = 3000; // 3 segundos
+const unsigned long intervaloAtualizacao = 3000;  // 3 segundos
 unsigned long ultimoMostrarIp = 0;
-const unsigned long intervaloExibeIP = 12000; // Mostra IP a cada 12s
+const unsigned long intervaloExibeIP = 12000;  // Mostra IP a cada 12s
 unsigned long ultimaLeitura = 0;
 const unsigned long intervaloLeitura = 1000;  // 1 segundos
 
-// para mostrar no html
+// Temperaturas atuais (usadas no JSON)
 float temperaturaInternaAtual = 0.0;
 float temperaturaExternaAtual = 0.0;
 int loopsimulacao = 0;
 
 // Instanciando os sensores DHT
-DHT dht11(DHT11PIN, DHT11TYPE); // Cria objeto DHT
-DHT dht22(DHT22PIN, DHT22TYPE); // Cria objeto DHT
+DHT dht11(DHT11PIN, DHT11TYPE);  // Cria objeto DHT
+DHT dht22(DHT22PIN, DHT22TYPE);  // Cria objeto DHT
 
 // Instanciando o display LCD (endereço I2C 0x27, 16 colunas, 2 linhas)
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
+// ---------------------------
+// Funções auxiliares de arquivos
+// ---------------------------
 
+// Cria arquivos HTML no SPIFFS se ainda não existirem
 void criarArquivosIniciais() {
   // Verifica se o arquivo já existe
   if (!SPIFFS.exists("/index.html")) {
@@ -229,6 +246,8 @@ void criarArquivosIniciais() {
 }
 
 // --- FUNÇÕES AUXILIARES DE SPIFFS ---
+
+// Conta o número de linhas de um arquivo
 int contarLinhasArquivo(const char* caminho) {
   File arquivo = SPIFFS.open(caminho);
   if (!arquivo) return 0;
@@ -240,6 +259,7 @@ int contarLinhasArquivo(const char* caminho) {
   return linhas;
 }
 
+// Remove a primeira linha de um arquivo
 void deletarPrimeiraLinha(const char* caminho) {
   File original = SPIFFS.open(caminho, "r");
   if (!original) return;
@@ -248,7 +268,10 @@ void deletarPrimeiraLinha(const char* caminho) {
   bool primeira = true;
   while (original.available()) {
     String linha = original.readStringUntil('\n');
-    if (primeira) { primeira = false; continue; }
+    if (primeira) {
+      primeira = false;
+      continue;
+    }
     restante += linha + "\n";
   }
   original.close();
@@ -259,6 +282,7 @@ void deletarPrimeiraLinha(const char* caminho) {
   novo.close();
 }
 
+// Salva dados de temperatura no arquivo CSV
 void salvarTemperatura(float tempInt, float tempExt, const char* dataHora) {
   const char* caminho = "/temperaturas.csv";
   const int limite = 500;
@@ -274,6 +298,7 @@ void salvarTemperatura(float tempInt, float tempExt, const char* dataHora) {
   arquivo.close();
 }
 
+// Salva eventos da porta no arquivo CSV
 void salvarEventoPorta(const char* evento, const char* dataHora) {
   const char* caminho = "/porta.csv";
   const int limite = 100;
@@ -289,10 +314,14 @@ void salvarEventoPorta(const char* evento, const char* dataHora) {
   arquivo.close();
 }
 
-// Pegar temperatura do DHT22
+// ---------------------------
+// Leitura dos sensores
+// ---------------------------
+
+// Lê o sensor DHT22 (interno)
 float lerTemperaturaInterna() {
-  float humidade = dht22.readHumidity();          // Lê umidade
-  float temperatura = dht22.readTemperature();    // Lê temperatura
+  float humidade = dht22.readHumidity();        // Lê umidade
+  float temperatura = dht22.readTemperature();  // Lê temperatura
 
   // Verifica se houve erro na leitura
   if (isnan(temperatura) || isnan(humidade)) {
@@ -300,19 +329,13 @@ float lerTemperaturaInterna() {
     return -999;
   }
 
-  // Exibe os valores lidos
-  //Serial.print("Temperatura Interna: ");
-  //Serial.print(temperatura);
-  //Serial.print(" °C  |  Umidade: ");
-  //Serial.print(humidade);
-  //Serial.println(" %");
   return temperatura;
 }
 
-// Pegar temperatura do DHT11
+// Lê o sensor DHT11 (externo)
 float lerTemperaturaExterna() {
-  float humidade = dht11.readHumidity();          // Lê umidade
-  float temperatura = dht11.readTemperature();    // Lê temperatura
+  float humidade = dht11.readHumidity();        // Lê umidade
+  float temperatura = dht11.readTemperature();  // Lê temperatura
 
   // Verifica se houve erro na leitura
   if (isnan(temperatura) || isnan(humidade)) {
@@ -320,26 +343,23 @@ float lerTemperaturaExterna() {
     return -999;
   }
 
-  // Exibe os valores lidos
-  //Serial.print("Temperatura Externa: ");
-  //Serial.print(temperatura);
-  //Serial.print(" °C  |  Umidade: ");
-  //Serial.print(humidade);
-  //Serial.println(" %");
-
   return temperatura;
 }
 
-// Tocar o Alarme quando a temperatura estiver fora de padrão
+// ---------------------------
+// Feedback visual e sonoro
+// ---------------------------
+
+// Emite o Alarme Sonoro quando a temperatura estiver fora de padrão
 void tocarAlarme() {
-    tone(AlarmeSonoro, 1000);  
-    delay(100);          
-    noTone(AlarmeSonoro);      
-    delay(100);          
-    tone(AlarmeSonoro, 1000);
-    delay(100);          
-    noTone(AlarmeSonoro);      
-    delay(300);  
+  tone(AlarmeSonoro, 1000);
+  delay(100);
+  noTone(AlarmeSonoro);
+  delay(100);
+  tone(AlarmeSonoro, 1000);
+  delay(100);
+  noTone(AlarmeSonoro);
+  delay(300);
 }
 
 // Alterar cor do LED de acordo com a temperatura
@@ -365,10 +385,10 @@ void atualizarLED(float temperaturaInterna) {
   }
 }
 
-// Função para exibir as temperaturas no LCD
+// Exibe as temperaturas no LCD
 void exibirTemperaturas(float temperaturaInterna, float temperaturaExterna) {
   lcd.clear();
-  
+
   // Exibe a temperatura interna na primeira linha
   lcd.setCursor(0, 0);
   if (temperaturaInterna == -999) {
@@ -381,11 +401,11 @@ void exibirTemperaturas(float temperaturaInterna, float temperaturaExterna) {
 
   // Substitui temporariamente a linha da temperatura externa com o IP
   if (millis() - ultimoMostrarIp >= intervaloExibeIP) {
-    ultimoMostrarIp = millis(); // atualiza o tempo da última atualização
+    ultimoMostrarIp = millis();  // atualiza o tempo da última atualização
     lcd.setCursor(0, 1);
     lcd.print("geladeira.local");
   } else {
-      // Exibe a temperatura externa na segunda linha
+    // Exibe a temperatura externa na segunda linha
     lcd.setCursor(0, 1);
     if (temperaturaExterna == -999) {
       lcd.print("Erro no DHT11");
@@ -397,7 +417,11 @@ void exibirTemperaturas(float temperaturaInterna, float temperaturaExterna) {
   }
 }
 
-void lerSensorPorta(){
+// ---------------------------
+// Leitura de evento da porta
+// ---------------------------
+
+void lerSensorPorta() {
   // Atualiza a hora do NTP
   timeClient.update();
 
@@ -434,14 +458,18 @@ void lerSensorPorta(){
   }
 }
 
+// ---------------------------
+// Conectividade
+// ---------------------------
+
 void verificarConexaoWiFi() {
   // Verifica se a conexão Wi-Fi está ativa
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("Conexão Wi-Fi perdida! Tentando reconectar...");
-    
+
     // Tenta reconectar ao Wi-Fi
     WiFi.reconnect();
-    
+
     // Aguarda 10 segundos para a reconexão
     unsigned long startMillis = millis();
     while (WiFi.status() != WL_CONNECTED) {
@@ -452,25 +480,25 @@ void verificarConexaoWiFi() {
         ESP.restart();  // Reinicia o ESP32
       }
     }
-    
+
     // Conectado com sucesso
     Serial.println("Wi-Fi reconectado!");
   }
 }
 
+// ---------------------------
+// Tarefas do FreeRTOS
+// ---------------------------
+
 // Núcleo que Lida com sensores
-void tarefaSensores(void *parameter) {
+void tarefaSensores(void* parameter) {
   while (true) {
     if (millis() - ultimaLeitura >= intervaloLeitura) {
       ultimaLeitura = millis();
 
       // Atualiza o tempo uma vez por iteração
-      //timeClient.update();
-      // Obtém o horário formatado diretamente
-      //char dataHora[30];
-      //String dataHora = timeClient.getFormattedTime();
       verificarConexaoWiFi();
-      
+
       // Obtém a data/hora atual
       time_t rawTime = timeClient.getEpochTime();
       struct tm* timeInfo = localtime(&rawTime);
@@ -478,15 +506,13 @@ void tarefaSensores(void *parameter) {
       strftime(dataHora, sizeof(dataHora), "%d/%m/%Y %H:%M:%S", timeInfo);
 
       // Exibe as temperaturas no LCD (a cada 3segundos e a cada 12 segundos exibe o IP)
-      if (millis() - ultimaAtualizacao >= intervaloAtualizacao ) {
-        //Serial.print("IP do ESP32: ");
-        //Serial.println(WiFi.localIP());
+      if (millis() - ultimaAtualizacao >= intervaloAtualizacao) {
 
         // Lê as temperaturas
-        temperaturaExternaAtual  = lerTemperaturaExterna(); // Retornar Temperatura Externa
-        temperaturaInternaAtual = lerTemperaturaInterna(); // Retornar Temperatura Interna
+        temperaturaExternaAtual = lerTemperaturaExterna();  // Retornar Temperatura Externa
+        temperaturaInternaAtual = lerTemperaturaInterna();  // Retornar Temperatura Interna
 
-        ultimaAtualizacao  = millis(); // atualiza o tempo da última atualização
+        ultimaAtualizacao = millis();  // atualiza o tempo da última atualização
         exibirTemperaturas(temperaturaInternaAtual, temperaturaExternaAtual);
 
         // Atualiza o LED e Alarme com base na temperatura interna
@@ -514,10 +540,10 @@ void tarefaSensores(void *parameter) {
 }
 
 // Função para lidar com o servidor web (Núcleo 1)
-void tarefaServidorWeb(void *parameter) {
+void tarefaServidorWeb(void* parameter) {
   while (true) {
     servidor.handleClient();  // Serve as requisições HTTP (arquivo HTML, CSV, etc.)
-    delay(1000);  // Delay para não sobrecarregar o núcleo 1
+    delay(1000);              // Delay para não sobrecarregar o núcleo 1
   }
 }
 
@@ -525,15 +551,19 @@ void loop() {
   // O servidor já está sendo gerido na tarefa do núcleo 1
 }
 
+// ---------------------------
+// Setup e Loop principal
+// ---------------------------
+
 void setup() {
-  Serial.begin(115200);   // Inicia comunicação
+  Serial.begin(115200);  // Inicia comunicação
   Serial.println("Iniciando as configurações...");
   delay(1000);
-  
-  dht11.begin();  // Inicializa o primeiro sensor DHT (DHT11)
-  dht22.begin();  // Inicializa o segundo sensor DHT (DHT22)
-  lcd.init();         // Inicia o LCD
-  lcd.backlight();    // Liga a luz de fundo
+
+  dht11.begin();    // Inicializa o primeiro sensor DHT (DHT11)
+  dht22.begin();    // Inicializa o segundo sensor DHT (DHT22)
+  lcd.init();       // Inicia o LCD
+  lcd.backlight();  // Liga a luz de fundo
 
   // Configurando os pinos dos leds como Saída
   pinMode(LEDvermelho, OUTPUT);
@@ -547,7 +577,7 @@ void setup() {
 
   // Configurando o pino do Alarme como Saída
   pinMode(AlarmeSonoro, OUTPUT);
-  digitalWrite(AlarmeSonoro, LOW); 
+  digitalWrite(AlarmeSonoro, LOW);
 
   // Configura o pino do botão
   pinMode(BOTAO_PRESSAO, INPUT_PULLUP);  // Usando a resistência de pull-up interna
@@ -555,23 +585,31 @@ void setup() {
   // Iniciar SPIFFS que gerencia dados
   if (!SPIFFS.begin(true)) {
     Serial.println("Erro ao montar SPIFFS");
-    while (true);
+    while (true)
+      ;
   }
 
   // Apagar todos os arquivos armazenados no SPIFFS
   //Serial.println("Apagando todos os arquivos do SPIFFS...");
   //SPIFFS.format();  // Isso apaga todos os dados do SPIFFS
-  
+
   // Continuar com o restante do seu setup normalmente
   //Serial.println("SPIFFS formatado!");
 
-  criarArquivosIniciais(); // CHAMA A FUNÇÃO PRA ENFIAR A MERDA DO HTML
+  criarArquivosIniciais();
 
   // Wi-Fi com timeout
   WiFiManager wm;
   // Apaga as redes WiFi salvas
   //wm.resetSettings();
-  wm.setTimeout(180); // Tempo limite de 3 minutos para configurar
+  wm.setTimeout(180);  // Tempo limite de 3 minutos para configurar
+
+  // Exibir mensagem no LCD enquanto aguarda conexão WiFi
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Conecte-se ao");
+  lcd.setCursor(0, 1);
+  lcd.print("WiFi: MonitorTemp");
 
   // Tenta conectar às redes salvas. Se não conseguir, abre um AP para configuração
   if (!wm.autoConnect("MonitorTemperatura", "12345678")) {
@@ -597,21 +635,20 @@ void setup() {
   int tentativasNTP = 0;
   while (!timeClient.update() && tentativasNTP < 5) {
     Serial.println("Tentando sincronizar NTP...");
-    delay(10000); // Espera 10 segundos entre as tentativas
+    delay(10000);  // Espera 10 segundos entre as tentativas
     tentativasNTP++;
   }
-  
+
   if (tentativasNTP == 5) {
     Serial.println("Erro ao sincronizar NTP. Reiniciando...");
-    ESP.restart(); // Reinicia o ESP32 se não conseguir sincronizar com o NTP
+    ESP.restart();  // Reinicia o ESP32 se não conseguir sincronizar com o NTP
   } else {
     Serial.println("Sincronizado com sucesso!");
   }
 
   delay(1000);
 
-  
-  temperaturaExternaAtual  = lerTemperaturaExterna();
+  temperaturaExternaAtual = lerTemperaturaExterna();
   temperaturaInternaAtual = lerTemperaturaInterna();
 
   // Formatar data/hora atual
@@ -636,7 +673,7 @@ void setup() {
     file.close();
   });
 
-// Servir o arquivo de temperaturas em formato CSV
+  // Servir o arquivo de temperaturas em formato CSV
   servidor.on("/temperaturas", HTTP_GET, []() {
     File file = SPIFFS.open("/temperaturas.csv", "r");
     if (!file) {
@@ -654,7 +691,7 @@ void setup() {
       servidor.send(100, "text/plain", "Erro ao abrir porta.csv");
       return;
     }
-    servidor.streamFile( file, "text/csv");
+    servidor.streamFile(file, "text/csv");
     file.close();
   });
 
@@ -671,27 +708,28 @@ void setup() {
   servidor.begin();
   Serial.println("Servidor HTTP iniciado.");
 
+  delay(1000);
+
   // Crie as tarefas no núcleo específico
   xTaskCreatePinnedToCore(
-    tarefaSensores,         // Função que será executada
-    "TarefaSensores",       // Nome da tarefa
-    10000,                  // Tamanho da pilha
-    NULL,                   // Parâmetros
-    1,                      // Prioridade (1 é baixa, 5 é alta)
-    NULL,                   // Handle da tarefa
-    0                       // Núcleo 0 (para as leituras dos sensores)
+    tarefaSensores,    // Função que será executada
+    "TarefaSensores",  // Nome da tarefa
+    10000,             // Tamanho da pilha
+    NULL,              // Parâmetros
+    1,                 // Prioridade (1 é baixa, 5 é alta)
+    NULL,              // Handle da tarefa
+    0                  // Núcleo 0 (para as leituras dos sensores)
   );
 
   xTaskCreatePinnedToCore(
-    tarefaServidorWeb,      // Função que será executada
-    "TarefaServidorWeb",    // Nome da tarefa
-    10000,                  // Tamanho da pilha
-    NULL,                   // Parâmetros
-    1,                      // Prioridade (1 é baixa, 5 é alta)
-    NULL,                   // Handle da tarefa
-    1                       // Núcleo 1 (para o servidor web)
+    tarefaServidorWeb,    // Função que será executada
+    "TarefaServidorWeb",  // Nome da tarefa
+    10000,                // Tamanho da pilha
+    NULL,                 // Parâmetros
+    1,                    // Prioridade (1 é baixa, 5 é alta)
+    NULL,                 // Handle da tarefa
+    1                     // Núcleo 1 (para o servidor web)
   );
 
   delay(1000);
-
 }
